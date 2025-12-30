@@ -39,7 +39,7 @@ with open(INPUT_PLAN, "r", encoding="utf-8") as f:
 # -------------------------------------------------
 
 prompt = f"""
-You are a formatting system.
+You are a formatting and explanation system.
 
 You are given a structured trip plan in JSON.
 This JSON is the SINGLE SOURCE OF TRUTH.
@@ -48,18 +48,29 @@ ABSOLUTE RULES (DO NOT VIOLATE):
 - DO NOT remove any cities.
 - DO NOT remove any events.
 - DO NOT summarize, merge, or skip events.
-- DO NOT change dates or order.
+- DO NOT change dates, scores, or order.
 - DO NOT invent data.
+- DO NOT recompute relevance.
 - DO NOT add or remove keys except where explicitly asked.
-- ONLY add natural-language descriptions.
+- ONLY add natural-language explanations.
 
 Your task:
 1. Wrap the input into the OUTPUT JSON SCHEMA below.
 2. Preserve ALL cities and ALL events exactly.
 3. Add:
-   - "city_overview" (1–2 sentences) for each city.
-   - "description" (1 sentence) for each event.
+   - "city_overview": 1–2 sentence factual overview of the city.
+   - "city_reason": 1–2 sentences explaining *why this city fits the user's interests*,
+     based ONLY on the relevance scores and types of events present.
+   - "description": 1 sentence per event explaining what it is.
+   - "relevance_note": 1 short sentence per event explaining
+     why this event is relevant given the user's interests.
 4. Convert events into UI-friendly "activities" entries.
+
+IMPORTANT:
+- You may REFER to relevance_score qualitatively (e.g., “high relevance”, “moderate relevance”).
+- You may NOT mention numeric values directly.
+- You may NOT compare cities against each other.
+- You may NOT recommend skipping any city.
 
 OUTPUT JSON SCHEMA (MUST MATCH EXACTLY):
 
@@ -77,12 +88,14 @@ OUTPUT JSON SCHEMA (MUST MATCH EXACTLY):
         "end_date": "..."
       }},
       "city_overview": "...",
+      "city_reason": "...",
       "activities": [
         {{
           "title": "...",
           "type": "fixed_event | flexible_activity",
           "date_info": "...",
-          "description": "..."
+          "description": "...",
+          "relevance_note": "..."
         }}
       ]
     }}
@@ -101,6 +114,7 @@ INPUT JSON:
 {json.dumps(plan, indent=2)}
 """
 
+
 # -------------------------------------------------
 # GEMINI CALL
 # -------------------------------------------------
@@ -113,6 +127,7 @@ response = client.models.generate_content(
         response_mime_type="application/json"
     )
 )
+
 
 raw = response.text.strip()
 
