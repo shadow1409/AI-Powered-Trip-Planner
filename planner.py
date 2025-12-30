@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # planner.py
 # -------------------------------------------------
 # Purpose:
@@ -29,7 +30,7 @@ W_DENSITY = 0.5
 # ARGUMENTS
 # -------------------------------------------------
 
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(description="Build structured trip plan JSON")
 parser.add_argument("--start", required=True, help="Trip start date (YYYY-MM-DD)")
 parser.add_argument("--end", required=True, help="Trip end date (YYYY-MM-DD)")
 args = parser.parse_args()
@@ -67,8 +68,18 @@ def average_gap_days(events):
 
 df = pd.read_csv(FINAL_CSV)
 
-df["start_date"] = pd.to_datetime(df["start_date"])
-df["end_date"] = pd.to_datetime(df["end_date"])
+required_cols = {"event_name", "city", "start_date", "end_date", "relevance_score"}
+missing = required_cols - set(df.columns)
+if missing:
+    raise ValueError(f"final.csv is missing required columns: {missing}")
+
+df["start_date"] = pd.to_datetime(df["start_date"], format=DATE_FMT, errors="coerce")
+df["end_date"] = pd.to_datetime(df["end_date"], format=DATE_FMT, errors="coerce")
+
+df = df.dropna(subset=["start_date", "end_date", "city"])
+
+# Normalize city names
+df["city"] = df["city"].astype(str).str.strip()
 
 # -------------------------------------------------
 # BUILD PLAN.JSON
@@ -80,7 +91,7 @@ plan = {
     "cities": []
 }
 
-for city, city_df in df.groupby("city"):
+for city, city_df in df.groupby("city", sort=False):
 
     fixed_events = []
     flexible_events = []
@@ -92,7 +103,7 @@ for city, city_df in df.groupby("city"):
                 "name": row["event_name"],
                 "type": "flexible_activity",
                 "duration_days": 1,
-                "relevance": round(row["relevance_score"], 4)
+                "relevance": round(float(row["relevance_score"]), 4)
             })
         else:
             fixed_events.append({
@@ -101,10 +112,10 @@ for city, city_df in df.groupby("city"):
                 "start": row["start_date"],
                 "end": row["end_date"],
                 "duration_days": event_duration(row["start_date"], row["end_date"]),
-                "relevance": round(row["relevance_score"], 4)
+                "relevance": round(float(row["relevance_score"]), 4)
             })
 
-    # Sort fixed events by time (for city window)
+    # Sort fixed events by time (for visit window)
     fixed_events.sort(key=lambda e: e["start"])
 
     if fixed_events:
@@ -129,7 +140,7 @@ for city, city_df in df.groupby("city"):
     city_score = W_RELEVANCE * mean_relevance + W_DENSITY * density_score
 
     # -----------------------------
-    # OUTPUT EVENTS
+    # OUTPUT EVENTS (SORTED BY RELEVANCE)
     # -----------------------------
 
     output_events = []
@@ -144,10 +155,9 @@ for city, city_df in df.groupby("city"):
             "relevance": e["relevance"]
         })
 
-    for e in flexible_events:
-        output_events.append(e)
+    output_events.extend(flexible_events)
 
-    # 🔹 SORT EVENTS BY RELEVANCE (DESCENDING)
+    # 🔹 Sort ALL events by relevance (descending)
     output_events.sort(key=lambda x: x["relevance"], reverse=True)
 
     plan["cities"].append({

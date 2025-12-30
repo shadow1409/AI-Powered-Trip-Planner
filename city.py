@@ -1,12 +1,14 @@
-# city.py
+﻿# city.py
 # -------------------------------------------------
 # Purpose:
 # Filter events by selected cities and trip duration
-# Accepts inputs via CLI (for Streamlit orchestration)
+# Designed to be IMPORTED by Streamlit
+# CLI kept only for local debugging
 # -------------------------------------------------
 
 import pandas as pd
 import argparse
+from typing import List
 
 # -------------------------------------------------
 # CONFIG
@@ -17,30 +19,51 @@ OUTPUT_CSV = "filtered.csv"
 DATE_FMT = "%Y-%m-%d"
 
 # -------------------------------------------------
-# CORE FUNCTION
+# CORE FUNCTION (STREAMLIT WILL USE THIS)
 # -------------------------------------------------
 
 def filter_events_by_city_and_date(
-    cities: list[str],
+    cities: List[str],
     trip_start_date: str,
     trip_end_date: str
 ) -> pd.DataFrame:
+    """
+    Filters events by:
+    1. Selected cities
+    2. Trip date overlap
+    """
 
+    # Load dataset
     df = pd.read_csv(CSV_FILE)
 
-    # --- FIX 1: Normalize city column ---
+    # -------------------------------
+    # Normalize city values (CRITICAL)
+    # -------------------------------
     df["city"] = df["city"].astype(str).str.strip()
     df["city_norm"] = df["city"].str.lower()
 
-    # --- FIX 2: Normalize input cities ---
-    cities_norm = [c.strip().lower() for c in cities if c.strip()]
+    cities_norm = [
+        c.strip().lower()
+        for c in cities
+        if c and c.strip()
+    ]
 
-    # Parse dates (ISO safe)
+    if not cities_norm:
+        # No cities selected → return empty DF safely
+        return df.iloc[0:0]
+
+    # -------------------------------
+    # Date parsing (STRICT ISO)
+    # -------------------------------
     df["start_date"] = pd.to_datetime(
-        df["start_date"], format=DATE_FMT, errors="coerce"
+        df["start_date"],
+        format=DATE_FMT,
+        errors="coerce"
     )
     df["end_date"] = pd.to_datetime(
-        df["end_date"], format=DATE_FMT, errors="coerce"
+        df["end_date"],
+        format=DATE_FMT,
+        errors="coerce"
     )
 
     df = df.dropna(subset=["start_date", "end_date"])
@@ -48,19 +71,20 @@ def filter_events_by_city_and_date(
     trip_start = pd.to_datetime(trip_start_date, format=DATE_FMT)
     trip_end = pd.to_datetime(trip_end_date, format=DATE_FMT)
 
-    # --- FIX 3: Correct city filtering ---
+    # -------------------------------
+    # FILTERS (THIS FIXES YOUR BUG)
+    # -------------------------------
     df = df[df["city_norm"].isin(cities_norm)]
 
-    # Date overlap filter
     df = df[
         (df["start_date"] <= trip_end) &
         (df["end_date"] >= trip_start)
     ]
 
-    # Cleanup helper column
+    # Cleanup
     df = df.drop(columns=["city_norm"])
 
-    # Deterministic ordering
+    # Stable ordering
     df = df.sort_values(
         by=["city", "start_date", "start_time"],
         na_position="last"
@@ -68,29 +92,60 @@ def filter_events_by_city_and_date(
 
     return df
 
+
 # -------------------------------------------------
-# CLI ENTRY POINT
+# HELPER FUNCTION (USED BY app.py)
+# -------------------------------------------------
+
+def run_city_filter(
+    cities: List[str],
+    trip_start_date: str,
+    trip_end_date: str,
+    output_csv: str = OUTPUT_CSV
+) -> None:
+    """
+    Wrapper used by Streamlit app.
+    Writes filtered.csv as side-effect.
+    """
+
+    df = filter_events_by_city_and_date(
+        cities=cities,
+        trip_start_date=trip_start_date,
+        trip_end_date=trip_end_date
+    )
+
+    df.to_csv(output_csv, index=False)
+
+
+# -------------------------------------------------
+# CLI ENTRY POINT (OPTIONAL, LOCAL TESTING ONLY)
 # -------------------------------------------------
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Filter events by city and trip dates"
+    )
     parser.add_argument("--cities", required=True)
     parser.add_argument("--start", required=True)
     parser.add_argument("--end", required=True)
 
     args = parser.parse_args()
 
-    cities = args.cities.split(",")
+    city_list = [
+        c.strip()
+        for c in args.cities.split(",")
+        if c.strip()
+    ]
 
-    filtered_df = filter_events_by_city_and_date(
-        cities=cities,
+    df = filter_events_by_city_and_date(
+        cities=city_list,
         trip_start_date=args.start,
         trip_end_date=args.end
     )
 
-    filtered_df.to_csv(OUTPUT_CSV, index=False)
+    df.to_csv(OUTPUT_CSV, index=False)
 
     print(f"Filtered events saved to {OUTPUT_CSV}")
-    print(f"Total events found: {len(filtered_df)}")
-    print(f"Cities found: {sorted(filtered_df['city'].unique())}")
+    print(f"Total events found: {len(df)}")
+    print(f"Cities found: {sorted(df['city'].unique().tolist())}")

@@ -1,16 +1,19 @@
+﻿# -*- coding: utf-8 -*-
 # gemini.py
 # -------------------------------------------------
 # Purpose:
 # Convert user interest text into structured
 # interest metadata using Gemini
-# Accepts input via CLI (for Streamlit orchestration)
+# Safe for Streamlit + multi-key fallback
 # -------------------------------------------------
 
 import os
 import json
 import argparse
+import time
 from google import genai
 from google.genai import types
+from google.genai.errors import ClientError
 
 # -------------------------------------------------
 # CATEGORY LIST (MUST MATCH DATASET)
@@ -30,6 +33,30 @@ CATEGORIES = [
     "heritage_walk","street_festival","local_fair","lake_activity",
     "forest_trail","island_experience","river_ghat"
 ]
+
+MODEL_NAME = "gemini-2.5-flash-lite"
+
+# -------------------------------------------------
+# LOAD API KEYS (MULTI-KEY SAFE)
+# -------------------------------------------------
+
+def load_api_keys():
+    """
+    Supports:
+    GEMINI_API_KEY=key
+    OR
+    GEMINI_API_KEYS=key1,key2,key3
+    """
+    if "GEMINI_API_KEYS" in os.environ:
+        return [k.strip() for k in os.environ["GEMINI_API_KEYS"].split(",") if k.strip()]
+    if "GEMINI_API_KEY" in os.environ:
+        return [os.environ["GEMINI_API_KEY"].strip()]
+    return []
+
+API_KEYS = load_api_keys()
+
+if not API_KEYS:
+    raise EnvironmentError("No Gemini API keys found in environment variables.")
 
 # -------------------------------------------------
 # PROMPT TEMPLATE
@@ -58,18 +85,7 @@ User input:
 """
 
 # -------------------------------------------------
-# GEMINI SETUP
-# -------------------------------------------------
-
-if "GEMINI_API_KEY" not in os.environ:
-    raise EnvironmentError("GEMINI_API_KEY not set in environment variables.")
-
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-
-MODEL_NAME = "gemini-2.5-flash-lite"
-
-# -------------------------------------------------
-# CORE FUNCTION
+# CORE FUNCTION (SAFE + FALLBACK)
 # -------------------------------------------------
 
 def extract_interest_metadata(user_text: str) -> dict:
@@ -78,32 +94,49 @@ def extract_interest_metadata(user_text: str) -> dict:
         user_input=user_text
     )
 
-    response = client.models.generate_content(
-        model=MODEL_NAME,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            temperature=0.0,
-            response_mime_type="application/json"
-        )
-    )
+    last_error = None
 
-    try:
-        metadata = json.loads(response.text)
-    except json.JSONDecodeError:
-        raise ValueError("Gemini did not return valid JSON.")
-
-    cleaned = {}
-    for cat in CATEGORIES:
+    for api_key in API_KEYS:
         try:
-            val = float(metadata.get(cat, 0.0))
-        except (TypeError, ValueError):
-            val = 0.0
-        cleaned[cat] = max(0.0, min(1.0, val))
+            client = genai.Client(api_key=api_key)
 
-    return cleaned
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    response_mime_type="application/json"
+                )
+            )
+
+            raw = response.text.strip()
+            metadata = json.loads(raw)
+
+            # Clamp + sanitize
+            cleaned = {}
+            for cat in CATEGORIES:
+                try:
+                    val = float(metadata.get(cat, 0.0))
+                except (TypeError, ValueError):
+                    val = 0.0
+                cleaned[cat] = max(0.0, min(1.0, val))
+
+            return cleaned
+
+        except (ClientError, json.JSONDecodeError) as e:
+            last_error = e
+            time.sleep(1)  # polite retry delay
+            continue
+
+    # -------------------------------------------------
+    # FAIL-SAFE: RETURN ZERO VECTOR (NEVER CRASH UI)
+    # -------------------------------------------------
+
+    print("⚠️ Gemini unavailable, falling back to zero-interest vector.")
+    return {cat: 0.0 for cat in CATEGORIES}
 
 # -------------------------------------------------
-# CLI ENTRY POINT (FOR STREAMLIT)
+# CLI ENTRY POINT (STREAMLIT SAFE)
 # -------------------------------------------------
 
 if __name__ == "__main__":
@@ -111,7 +144,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Extract interest metadata using Gemini"
     )
-
     parser.add_argument(
         "--interest",
         required=True,
@@ -119,11 +151,7 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-
     interest_text = args.interest.strip()
-
-    if not interest_text:
-        raise ValueError("Interest text cannot be empty.")
 
     metadata = extract_interest_metadata(interest_text)
 

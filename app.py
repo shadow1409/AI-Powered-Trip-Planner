@@ -3,6 +3,8 @@ import subprocess
 import json
 import pandas as pd
 from datetime import date
+import sys
+import shlex
 
 # --------------------------------------------
 # CONFIG
@@ -12,12 +14,14 @@ EVENTS_CSV = "india_events_2000_tourism_2026_latlon.csv"
 YEAR_START = date(2026, 1, 1)
 YEAR_END = date(2026, 12, 31)
 
+PYTHON_BIN = sys.executable  # ✅ Cloud-safe
+
 # --------------------------------------------
 # LOAD CITY LIST
 # --------------------------------------------
 
 df_events = pd.read_csv(EVENTS_CSV)
-REAL_CITIES = sorted(df_events["city"].unique())
+REAL_CITIES = sorted(df_events["city"].dropna().unique())
 
 # --------------------------------------------
 # STREAMLIT UI
@@ -50,7 +54,7 @@ with col2:
         value=trip_start
     )
 
-# -------- Cities (MULTISELECT – STABLE) --------
+# -------- Cities --------
 st.subheader("📍 Select Cities")
 
 selected_cities = st.multiselect(
@@ -65,7 +69,7 @@ st.subheader("✨ Your Interests")
 interest_text = st.text_area(
     "Describe what you enjoy",
     height=120,
-    placeholder="I love beaches, cultural places, peaceful environments..."
+    placeholder="I love music, concerts, and tech expos..."
 )
 
 # --------------------------------------------
@@ -82,42 +86,70 @@ if st.button("🚀 Generate Trip Plan"):
         st.error("Please select at least one city.")
         st.stop()
 
+    # 🔹 SANITIZE USER INPUT FOR CLI
+    safe_interest = interest_text.replace("\n", " ").replace('"', "'").strip()
+
     with st.status("Running planning pipeline...", expanded=True) as status:
 
-        status.write("🔹 Understanding your interests...")
-        subprocess.run(
-            ["python", "gemini.py", "--interest", interest_text],
-            check=True
-        )
+        try:
+            status.write("🔹 Understanding your interests...")
+            subprocess.run(
+                [
+                    PYTHON_BIN, "gemini.py",
+                    "--interest", safe_interest
+                ],
+                check=True,
+                capture_output=True,
+                text=True
+            )
 
-        status.write("🔹 Filtering events by city and date...")
-        subprocess.run(
-            [
-                "python", "city.py",
-                "--cities", ",".join(selected_cities),
-                "--start", str(trip_start),
-                "--end", str(trip_end)
-            ],
-            check=True
-        )
+            status.write("🔹 Filtering events by city and date...")
+            subprocess.run(
+                [
+                    PYTHON_BIN, "city.py",
+                    "--cities", ",".join(selected_cities),
+                    "--start", str(trip_start),
+                    "--end", str(trip_end)
+                ],
+                check=True,
+                capture_output=True,
+                text=True
+            )
 
-        status.write("🔹 Computing relevance scores...")
-        subprocess.run(["python", "relevance.py"], check=True)
+            status.write("🔹 Computing relevance scores...")
+            subprocess.run(
+                [PYTHON_BIN, "relevance.py"],
+                check=True,
+                capture_output=True,
+                text=True
+            )
 
-        status.write("🔹 Building trip plan...")
-        subprocess.run(
-            [
-                "python", "planner.py",
-                "--start", str(trip_start),
-                "--end", str(trip_end)
-            ],
-            check=True
-        )
+            status.write("🔹 Building trip plan...")
+            subprocess.run(
+                [
+                    PYTHON_BIN, "planner.py",
+                    "--start", str(trip_start),
+                    "--end", str(trip_end)
+                ],
+                check=True,
+                capture_output=True,
+                text=True
+            )
 
-        status.write("🔹 Creating final itinerary...")
-        subprocess.run(["python", "gemini_itinerary.py"], check=True)
+            status.write("🔹 Creating final itinerary...")
+            subprocess.run(
+                [PYTHON_BIN, "gemini_itinerary.py"],
+                check=True,
+                capture_output=True,
+                text=True
+            )
 
-        status.update(label="✅ Trip plan ready!", state="complete")
+            status.update(label="✅ Trip plan ready!", state="complete")
+
+        except subprocess.CalledProcessError as e:
+            st.error("Pipeline failed.")
+            st.code(e.stderr or e.stdout)
+            st.stop()
 
     # --------------------------------------------
     # DISPLAY RESULT
@@ -137,11 +169,14 @@ if st.button("🚀 Generate Trip Plan"):
     for city_block in itinerary["itinerary"]:
         with st.expander(f"📍 {city_block['city']}"):
             st.write(city_block["city_overview"])
+            st.write(f"**Why visit:** {city_block['city_reason']}")
+
             for act in city_block["activities"]:
                 st.markdown(
                     f"""
                     **• {act['title']}**  
                     _{act['date_info']}_  
-                    {act['description']}
+                    {act['description']}  
+                    *{act['relevance_note']}*
                     """
                 )

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # relevance.py
 # -------------------------------------------------
 # Purpose:
@@ -16,7 +17,6 @@ FILTERED_CSV = "filtered.csv"
 INPUT_JSON = "input.json"
 OUTPUT_CSV = "final.csv"
 
-# Bias added to tourist attractions
 TOURISM_BIAS = 0.4
 
 # Categories (MUST MATCH DATASET & input.json)
@@ -35,13 +35,12 @@ CATEGORIES = [
     "forest_trail","island_experience","river_ghat"
 ]
 
-# Categories that define a tourist attraction
 TOURISM_CATEGORIES = {
-    "seaside_beach", "cultural_heritage", "heritage_walk",
-    "sunset_view", "sunrise_view", "mountain_climbing",
-    "boating_cruise", "lake_activity", "island_experience",
-    "river_ghat", "desert_experience", "snow_activity",
-    "wildlife_safari", "forest_trail"
+    "seaside_beach","cultural_heritage","heritage_walk",
+    "sunset_view","sunrise_view","mountain_climbing",
+    "boating_cruise","lake_activity","island_experience",
+    "river_ghat","desert_experience","snow_activity",
+    "wildlife_safari","forest_trail"
 }
 
 # -------------------------------------------------
@@ -52,6 +51,20 @@ with open(INPUT_JSON, "r", encoding="utf-8") as f:
     user_vector = json.load(f)
 
 df = pd.read_csv(FILTERED_CSV)
+
+# -------------------------------------------------
+# SAFETY CHECKS
+# -------------------------------------------------
+
+required_cols = {"event_name", "city", "state", "start_date", "end_date"}
+missing = required_cols - set(df.columns)
+if missing:
+    raise ValueError(f"filtered.csv missing required columns: {missing}")
+
+# Ensure all category columns exist
+for cat in CATEGORIES:
+    if cat not in df.columns:
+        df[cat] = 0
 
 # -------------------------------------------------
 # RELEVANCE SCORING FUNCTION
@@ -66,24 +79,25 @@ def compute_relevance(event_row: pd.Series) -> float:
     score = 0.0
     weight_sum = 0.0
 
-    # Weighted dot product
     for cat in CATEGORIES:
-        user_weight = user_vector.get(cat, 0.0)
-        event_value = event_row.get(cat, 0)
+        user_weight = float(user_vector.get(cat, 0.0))
+        event_value = float(event_row.get(cat, 0))
 
-        score += user_weight * event_value
-        weight_sum += user_weight
+        if event_value > 0 and user_weight > 0:
+            score += user_weight * event_value
+            weight_sum += user_weight
 
     if weight_sum > 0:
         score = score / weight_sum
+    else:
+        score = 0.0
 
     # Tourism bias
-    is_tourist_event = any(
-        event_row.get(cat, 0) == 1 for cat in TOURISM_CATEGORIES
-    )
-
-    if is_tourist_event:
+    if any(event_row.get(cat, 0) == 1 for cat in TOURISM_CATEGORIES):
         score += TOURISM_BIAS
+
+    # Clamp score to [0, 1]
+    score = max(0.0, min(1.0, score))
 
     return round(score, 4)
 
@@ -94,17 +108,12 @@ def compute_relevance(event_row: pd.Series) -> float:
 df["relevance_score"] = df.apply(compute_relevance, axis=1)
 
 # -------------------------------------------------
-# FINAL OUTPUT (WITH CITY & STATE)
+# FINAL OUTPUT
 # -------------------------------------------------
 
-final_df = df[[
-    "event_name",
-    "city",
-    "state",
-    "relevance_score",
-    "start_date",
-    "end_date"
-]].sort_values(
+final_df = df[
+    ["event_name","city","state","relevance_score","start_date","end_date"]
+].sort_values(
     by="relevance_score",
     ascending=False
 ).reset_index(drop=True)
