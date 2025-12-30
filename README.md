@@ -4,7 +4,7 @@ A modular AI-assisted travel planning system that combines deterministic ML-base
 Team Members:
 1. Pavitra Agarwal
 2. Deepanshu Chaubey
-3. ...
+3. Tanmay Ratnawat
 4. ...
 
 
