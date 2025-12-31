@@ -5,6 +5,6 @@ Team Members:
 1. Pavitra Agarwal
 2. Deepanshu Chaubey
 3. Tanmay Ratnawat
-4. ...
+4. Kritika Singh
 
 
