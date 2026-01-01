@@ -61,35 +61,61 @@ You are a formatting and explanation system.
 You are given a structured trip plan in JSON.
 This JSON is the SINGLE SOURCE OF TRUTH.
 
-ABSOLUTE RULES (DO NOT VIOLATE):
+=====================
+ABSOLUTE RULES
+=====================
 - DO NOT remove any cities.
 - DO NOT remove any events.
 - DO NOT summarize, merge, or skip events.
-- DO NOT change dates, scores, or order.
-- DO NOT invent data.
+- DO NOT change dates, scores, or ordering.
+- DO NOT invent activities, cities, or facts.
 - DO NOT recompute relevance.
-- DO NOT add or remove keys except where explicitly asked.
+- DO NOT add or remove keys except where explicitly instructed.
 - ONLY add natural-language explanations.
 
-Your task:
-1. Wrap the input into the OUTPUT JSON SCHEMA below.
-2. Preserve ALL cities and ALL events exactly.
-3. Add:
-   - "city_overview": 1–2 sentence factual overview of the city.
-   - "city_reason": 1–2 sentences explaining why this city fits the user's interests,
-     based ONLY on the relevance scores and types of events present.
-   - "description": 1 sentence per event explaining what it is.
-   - "relevance_note": 1 short sentence per event explaining
-     why this event is relevant given the user's interests.
-4. Convert events into UI-friendly "activities" entries.
+If a city contains ONLY flexible exploration activities,
+it MUST still appear fully in the output.
 
-IMPORTANT:
-- You may refer to relevance_score qualitatively.
-- You may NOT mention numeric values.
-- You may NOT compare cities.
-- You may NOT recommend skipping any city.
+=====================
+YOUR TASK
+=====================
+1. Wrap the input JSON into the OUTPUT JSON SCHEMA below.
+2. Preserve ALL cities and ALL events exactly as provided.
+3. Add the following explanations:
 
-OUTPUT JSON SCHEMA (MUST MATCH EXACTLY):
+For EACH CITY:
+- "city_overview":
+  A neutral 1–2 sentence factual overview of the city.
+- "city_reason":
+  1–2 sentences explaining why this city fits the user's interests,
+  based ONLY on:
+    • the types of events present
+    • their qualitative relevance levels
+
+For EACH EVENT:
+- "description":
+  One sentence explaining what the activity involves.
+- "relevance_note":
+  One short sentence explaining why this activity aligns
+  with the user's interests.
+
+4. Convert all events into UI-friendly "activities".
+
+=====================
+IMPORTANT CONSTRAINTS
+=====================
+- You MAY refer to relevance qualitatively
+  (e.g., “highly relevant”, “moderately aligned”).
+- You MUST NOT mention numeric relevance values.
+- You MUST NOT compare cities with each other.
+- You MUST NOT suggest skipping or removing any city.
+- Flexible activities such as "Exploring <City>" are
+  VALID and IMPORTANT activities.
+
+=====================
+OUTPUT JSON SCHEMA
+(MUST MATCH EXACTLY)
+=====================
 
 {{
   "trip_summary": {{
@@ -119,13 +145,19 @@ OUTPUT JSON SCHEMA (MUST MATCH EXACTLY):
   ]
 }}
 
-Guidelines:
+=====================
+FORMATTING GUIDELINES
+=====================
 - Use plan.trip_start and plan.trip_end for trip_summary.
-- cities_covered must list cities in order.
-- Fixed events use exact dates.
-- Flexible activities use "Any free day in <city> (1 day)".
+- cities_covered MUST list cities in the SAME ORDER as input.
+- Fixed events:
+  date_info = "YYYY-MM-DD" or "YYYY-MM-DD → YYYY-MM-DD"
+- Flexible activities:
+  date_info = "Any free day in <city>"
 
-INPUT JSON:
+=====================
+INPUT JSON
+=====================
 {json.dumps(plan, indent=2)}
 """
 

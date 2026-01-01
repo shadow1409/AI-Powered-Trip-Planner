@@ -21,8 +21,10 @@ FINAL_CSV = "final.csv"
 OUTPUT_JSON = "plan.json"
 DATE_FMT = "%Y-%m-%d"
 
-FLEXIBLE_KEYWORDS = ["explore", "attractions"]
+# Flexible events are identified ONLY by "explore"
+FLEXIBLE_KEYWORD = "explore"
 
+# City score weights (metadata only)
 W_RELEVANCE = 0.5
 W_DENSITY = 0.5
 
@@ -43,8 +45,11 @@ trip_end = datetime.strptime(args.end, DATE_FMT)
 # -------------------------------------------------
 
 def is_flexible_event(event_name: str) -> bool:
-    name = event_name.lower()
-    return all(k in name for k in FLEXIBLE_KEYWORDS)
+    """
+    Flexible events are city-level exploratory activities.
+    Example: 'Exploring Goa'
+    """
+    return FLEXIBLE_KEYWORD in event_name.lower()
 
 
 def event_duration(start, end):
@@ -68,7 +73,9 @@ def average_gap_days(events):
 
 df = pd.read_csv(FINAL_CSV)
 
-required_cols = {"event_name", "city", "start_date", "end_date", "relevance_score"}
+required_cols = {
+    "event_name", "city", "start_date", "end_date", "relevance_score"
+}
 missing = required_cols - set(df.columns)
 if missing:
     raise ValueError(f"final.csv is missing required columns: {missing}")
@@ -91,6 +98,7 @@ plan = {
     "cities": []
 }
 
+# IMPORTANT: groupby(sort=False) preserves input order
 for city, city_df in df.groupby("city", sort=False):
 
     fixed_events = []
@@ -111,17 +119,20 @@ for city, city_df in df.groupby("city", sort=False):
                 "type": "fixed_event",
                 "start": row["start_date"],
                 "end": row["end_date"],
-                "duration_days": event_duration(row["start_date"], row["end_date"]),
+                "duration_days": event_duration(
+                    row["start_date"], row["end_date"]
+                ),
                 "relevance": round(float(row["relevance_score"]), 4)
             })
 
-    # Sort fixed events by time (for visit window)
+    # Sort fixed events by time to define visit window
     fixed_events.sort(key=lambda e: e["start"])
 
     if fixed_events:
         city_start_date = fixed_events[0]["start"]
         city_end_date = fixed_events[-1]["end"]
     else:
+        # City with only flexible exploration
         city_start_date = trip_start
         city_end_date = trip_end
 
@@ -137,7 +148,10 @@ for city, city_df in df.groupby("city", sort=False):
         mean_relevance = 0.0
         density_score = 0.0
 
-    city_score = W_RELEVANCE * mean_relevance + W_DENSITY * density_score
+    city_score = (
+        W_RELEVANCE * mean_relevance +
+        W_DENSITY * density_score
+    )
 
     # -----------------------------
     # OUTPUT EVENTS (SORTED BY RELEVANCE)
@@ -157,7 +171,7 @@ for city, city_df in df.groupby("city", sort=False):
 
     output_events.extend(flexible_events)
 
-    # 🔹 Sort ALL events by relevance (descending)
+    # Sort ALL events by relevance (descending)
     output_events.sort(key=lambda x: x["relevance"], reverse=True)
 
     plan["cities"].append({
