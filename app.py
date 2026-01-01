@@ -4,7 +4,6 @@ import json
 import pandas as pd
 from datetime import date
 import sys
-import shlex
 
 # --------------------------------------------
 # CONFIG
@@ -13,8 +12,16 @@ import shlex
 EVENTS_CSV = "india_events_2000_tourism_2026_latlon.csv"
 YEAR_START = date(2026, 1, 1)
 YEAR_END = date(2026, 12, 31)
+PYTHON_BIN = sys.executable  # cloud-safe
 
-PYTHON_BIN = sys.executable  # ✅ Cloud-safe
+# --------------------------------------------
+# PAGE SETUP (NORMAL)
+# --------------------------------------------
+
+st.set_page_config(
+    page_title="AI-Powered Trip Planner",
+    layout="centered"
+)
 
 # --------------------------------------------
 # LOAD CITY LIST
@@ -24,17 +31,18 @@ df_events = pd.read_csv(EVENTS_CSV)
 REAL_CITIES = sorted(df_events["city"].dropna().unique())
 
 # --------------------------------------------
-# STREAMLIT UI
+# HEADER
 # --------------------------------------------
 
-st.set_page_config(page_title="AI Trip Planner", layout="wide")
+st.title("🧠 AI-Powered Trip Planner")
+st.caption("Plan intelligent, interest-aware trips across Indian cities.")
 
-st.markdown(
-    "<h1 style='text-align:center;'>🧠 AI-Powered Trip Planner</h1>",
-    unsafe_allow_html=True
-)
+st.divider()
 
-# -------- Trip Dates --------
+# --------------------------------------------
+# INPUTS
+# --------------------------------------------
+
 st.subheader("📅 Trip Duration")
 
 col1, col2 = st.columns(2)
@@ -54,29 +62,30 @@ with col2:
         value=trip_start
     )
 
-# -------- Cities --------
 st.subheader("📍 Select Cities")
 
 selected_cities = st.multiselect(
     "Choose cities to visit",
-    REAL_CITIES,
-    default=[]
+    REAL_CITIES
 )
 
-# -------- Interests --------
 st.subheader("✨ Your Interests")
 
 interest_text = st.text_area(
     "Describe what you enjoy",
     height=120,
-    placeholder="I love music, concerts, and tech expos..."
+    placeholder="I love music, heritage walks, beaches, tech expos…"
 )
+
+st.divider()
 
 # --------------------------------------------
 # RUN PIPELINE
 # --------------------------------------------
 
-if st.button("🚀 Generate Trip Plan"):
+generate = st.button("🚀 Generate Trip Plan", use_container_width=True)
+
+if generate:
 
     if not interest_text.strip():
         st.error("Please describe your interests.")
@@ -86,24 +95,18 @@ if st.button("🚀 Generate Trip Plan"):
         st.error("Please select at least one city.")
         st.stop()
 
-    # 🔹 SANITIZE USER INPUT FOR CLI
     safe_interest = interest_text.replace("\n", " ").replace('"', "'").strip()
 
-    with st.status("Running planning pipeline...", expanded=True) as status:
+    with st.status("Planning your trip...", expanded=True) as status:
 
         try:
-            status.write("🔹 Understanding your interests...")
+            status.write("Understanding your interests…")
             subprocess.run(
-                [
-                    PYTHON_BIN, "gemini.py",
-                    "--interest", safe_interest
-                ],
-                check=True,
-                capture_output=True,
-                text=True
+                [PYTHON_BIN, "gemini.py", "--interest", safe_interest],
+                check=True
             )
 
-            status.write("🔹 Filtering events by city and date...")
+            status.write("Filtering events by city and date…")
             subprocess.run(
                 [
                     PYTHON_BIN, "city.py",
@@ -111,37 +114,29 @@ if st.button("🚀 Generate Trip Plan"):
                     "--start", str(trip_start),
                     "--end", str(trip_end)
                 ],
-                check=True,
-                capture_output=True,
-                text=True
+                check=True
             )
 
-            status.write("🔹 Computing relevance scores...")
+            status.write("Computing relevance scores…")
             subprocess.run(
                 [PYTHON_BIN, "relevance.py"],
-                check=True,
-                capture_output=True,
-                text=True
+                check=True
             )
 
-            status.write("🔹 Building trip plan...")
+            status.write("Building trip plan…")
             subprocess.run(
                 [
                     PYTHON_BIN, "planner.py",
                     "--start", str(trip_start),
                     "--end", str(trip_end)
                 ],
-                check=True,
-                capture_output=True,
-                text=True
+                check=True
             )
 
-            status.write("🔹 Creating final itinerary...")
+            status.write("Creating final itinerary…")
             subprocess.run(
                 [PYTHON_BIN, "gemini_itinerary.py"],
-                check=True,
-                capture_output=True,
-                text=True
+                check=True
             )
 
             status.update(label="✅ Trip plan ready!", state="complete")
@@ -152,26 +147,28 @@ if st.button("🚀 Generate Trip Plan"):
             st.stop()
 
     # --------------------------------------------
-    # DISPLAY RESULT
+    # DISPLAY RESULTS
     # --------------------------------------------
-
-    st.divider()
-    st.header("🗺️ Your Trip Itinerary")
 
     with open("itinerary.json", "r", encoding="utf-8") as f:
         itinerary = json.load(f)
 
+    st.divider()
+    st.header("🗺️ Your Trip Itinerary")
+
     st.markdown(
-        f"**Trip Dates:** {itinerary['trip_summary']['start_date']} → "
-        f"{itinerary['trip_summary']['end_date']}"
+        f"""
+        **📅 Dates:** {itinerary['trip_summary']['start_date']} → {itinerary['trip_summary']['end_date']}  
+        **📍 Cities:** {", ".join(itinerary['trip_summary']['cities_covered'])}
+        """
     )
 
-    for city_block in itinerary["itinerary"]:
-        with st.expander(f"📍 {city_block['city']}"):
-            st.write(city_block["city_overview"])
-            st.write(f"**Why visit:** {city_block['city_reason']}")
+    for city in itinerary["itinerary"]:
+        with st.expander(f"📍 {city['city']}"):
+            st.write(city["city_overview"])
+            st.write(f"**Why visit:** {city['city_reason']}")
 
-            for act in city_block["activities"]:
+            for act in city["activities"]:
                 st.markdown(
                     f"""
                     **• {act['title']}**  
